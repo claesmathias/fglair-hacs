@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 from typing import Any
 
@@ -21,7 +22,7 @@ from .const import (
     DOMAIN,
     FGL_MODEL_RE,
     FGLB_MODEL_RE,
-    FGL_TEMP_SCALE,
+    FGL_TEMP_SCALE,  # used in _adjust_to_celsius / _celsius_to_adjust
     FGL_MODE_TO_HA,
     HA_MODE_TO_FGL,
     FGL_FAN_TO_HA,
@@ -69,14 +70,27 @@ async def async_setup_entry(
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _fgl_temp_from_api(raw: int | None) -> float | None:
+def _adjust_to_celsius(raw: int | None) -> float | None:
+    """adjust_temperature: stored as tenths of °C (210 = 21.0 °C)."""
     if raw is None:
         return None
     return round(raw / FGL_TEMP_SCALE, 1)
 
 
-def _fgl_temp_to_api(celsius: float) -> int:
+def _celsius_to_adjust(celsius: float) -> int:
     return round(celsius * FGL_TEMP_SCALE)
+
+
+def _display_to_celsius(raw: int | None) -> float | None:
+    """display_temperature: lookup-table encoded value from the FGLair app.
+
+    The table maps display integers to 0.5 °C steps via:
+        celsius = floor((display - 5000) / 50) * 0.5
+    (derived from the TEMPERATURES array in the FGLair 3.4.2 APK build.js)
+    """
+    if raw is None:
+        return None
+    return math.floor((raw - 5000) / 50) * 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -201,10 +215,10 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
         return HVACMode(mode_str)
 
     def _fgl_current_temp(self) -> float | None:
-        return _fgl_temp_from_api(self._get("display_temperature"))
+        return _display_to_celsius(self._get("display_temperature"))
 
     def _fgl_target_temp(self) -> float | None:
-        return _fgl_temp_from_api(self._get("adjust_temperature"))
+        return _adjust_to_celsius(self._get("adjust_temperature"))
 
     def _fgl_fan_mode(self) -> str | None:
         raw = self._get("fan_speed")
@@ -322,7 +336,7 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
             return
         if self._dtype in ("fgl", "fglb"):
             await self._api.set_property_with_retry(
-                self._dsn, "adjust_temperature", _fgl_temp_to_api(temp)
+                self._dsn, "adjust_temperature", _celsius_to_adjust(temp)
             )
         else:
             if not self._celsius:
