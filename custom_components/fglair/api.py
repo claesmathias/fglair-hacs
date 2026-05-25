@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import base64
 import logging
-import ssl
 from typing import Any
 
 import aiohttp
@@ -51,12 +50,6 @@ class FglAirApi:
         self._devices_server = AYLA_DEVICES_SERVERS[region]
         self._app_id, self._app_secret = _build_credentials(app_key)
 
-        # Disable cert verification to match the reference implementation
-        self._ssl: ssl.SSLContext = ssl.SSLContext()
-        self._ssl.verify_mode = ssl.CERT_NONE
-        self._ssl.check_hostname = False
-        self._ssl.load_default_certs()
-
     # ------------------------------------------------------------------
     # Authentication
     # ------------------------------------------------------------------
@@ -86,7 +79,7 @@ class FglAirApi:
             f"https://{self._user_server}/users/sign_in.json",
             json=payload,
             headers=headers,
-            ssl=self._ssl,
+            ssl=False,
         ) as resp:
             resp.raise_for_status()
             data = await resp.json(content_type=None)
@@ -112,7 +105,7 @@ class FglAirApi:
         async with self._session.get(
             f"https://{self._devices_server}/apiv1/devices.json",
             headers=self._headers(),
-            ssl=self._ssl,
+            ssl=False,
         ) as resp:
             resp.raise_for_status()
             return await resp.json(content_type=None)
@@ -126,7 +119,7 @@ class FglAirApi:
         async with self._session.get(
             f"https://{self._devices_server}/apiv1/dsns/{dsn}/properties.json",
             headers=self._headers(),
-            ssl=self._ssl,
+            ssl=False,
         ) as resp:
             resp.raise_for_status()
             raw = await resp.json(content_type=None)
@@ -142,7 +135,7 @@ class FglAirApi:
             url,
             json={"datapoint": {"value": value}},
             headers=self._headers(),
-            ssl=self._ssl,
+            ssl=False,
         ) as resp:
             resp.raise_for_status()
             _LOGGER.debug("Set %s.%s = %r", dsn, name, value)
