@@ -1,0 +1,11 @@
+{
+  "domain": "fglair",
+  "name": "FGLair",
+  "codeowners": ["@claesmathias"],
+  "config_flow": true,
+  "documentation": "https://github.com/claesmathias/fglair-hacs",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "requirements": [],
+  "version": "1.0.0"
+}

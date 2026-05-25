@@ -1,0 +1,24 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "FGLair / Hisense AC",
+        "description": "Connect to your FGLair or Hisense cloud account.",
+        "data": {
+          "username": "Email address",
+          "password": "Password",
+          "app": "App / Region"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid username or password.",
+      "cannot_connect": "Cannot connect to the FGLair server. Check your network.",
+      "no_devices": "No AC devices found in your account.",
+      "unknown": "Unexpected error. Check the Home Assistant logs."
+    },
+    "abort": {
+      "already_configured": "This account is already configured."
+    }
+  }
+}
