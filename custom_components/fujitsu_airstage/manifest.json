@@ -4,6 +4,7 @@
   "codeowners": ["@claesmathias"],
   "config_flow": true,
   "documentation": "https://github.com/claesmathias/fglair-hacs",
+  "issue_tracker": "https://github.com/claesmathias/fglair-hacs/issues",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
   "requirements": [],
