@@ -1,5 +1,5 @@
 {
-  "domain": "fglair",
+  "domain": "fujitsu_airstage",
   "name": "FGLair",
   "codeowners": ["@claesmathias"],
   "config_flow": true,

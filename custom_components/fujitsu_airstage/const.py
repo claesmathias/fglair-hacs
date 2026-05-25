@@ -1,4 +1,4 @@
-DOMAIN = "fglair"
+DOMAIN = "fujitsu_airstage"
 DEFAULT_SCAN_INTERVAL = 30
 
 CONF_APP = "app"
