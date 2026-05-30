@@ -1,5 +1,6 @@
 {
   "name": "FGLair",
   "render_readme": true,
-  "icon": "icon.png"
+  "icon": "icon.png",
+  "homeassistant": "2024.1.0"
 }
