@@ -5,6 +5,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.2.0] — 2026-05-30
+
+### Fixed
+- Turn-on command now sends `operation_mode = 1` (the wake/ON signal the device expects) instead of `2` (AUTO), which the device rejects when powered off — matching the behaviour of the official FGLair app
+
+---
+
 ## [1.1.0] — 2026-05-30
 
 ### Added
