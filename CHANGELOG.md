@@ -5,6 +5,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.3.0] — 2026-05-30
+
+### Fixed
+- Current temperature now refreshes automatically every poll cycle — writes `get_prop = 1` after each read to ask the AC unit to push a fresh `display_temperature` to the Ayla cloud, matching the behaviour of the refresh button in the official FGLair app
+
+---
+
 ## [1.2.0] — 2026-05-30
 
 ### Fixed
