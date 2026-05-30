@@ -41,7 +41,19 @@ class FglAirCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
 
         for dsn in self.devices:
             try:
-                result[dsn] = await self.api.get_properties_with_retry(dsn)
+                props = await self.api.get_properties_with_retry(dsn)
+                result[dsn] = props
+
+                # FGL devices: trigger a fresh sensor read from the AC unit by
+                # writing get_prop=1. The AC responds by pushing a new
+                # display_temperature to the cloud; the next poll picks it up.
+                # (Mirrors the refresh button in the official FGLair app.)
+                if "get_prop" in props:
+                    try:
+                        await self.api.set_device_property(dsn, "get_prop", 1)
+                    except Exception:  # noqa: BLE001
+                        pass  # Non-critical; next poll reads whatever the cloud has
+
             except Exception as exc:  # noqa: BLE001
                 _LOGGER.warning("Failed to update %s: %s", dsn, exc)
                 errors.append(dsn)
