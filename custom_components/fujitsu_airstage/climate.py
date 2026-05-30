@@ -377,7 +377,8 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
 
     async def async_turn_on(self) -> None:
         if self._dtype in ("fgl", "fglb"):
-            await self._api.set_property_with_retry(self._dsn, "operation_mode", 2)  # AUTO
+            # App sends 1 ("ON" wake command); device transitions to last-used mode on its own
+            await self._api.set_property_with_retry(self._dsn, "operation_mode", 1)
         else:
             await self._api.set_property_with_retry(self._dsn, "t_power", 1)
         await self.coordinator.async_request_refresh()
