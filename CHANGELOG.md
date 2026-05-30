@@ -5,6 +5,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.1.0] — 2026-05-30
+
+### Added
+- HTTP timeout (15 s) on all cloud API requests
+- Automatic retry (up to 3 attempts, exponential backoff) on transient errors such as connection resets and timeouts
+- `temperature_last_updated` state attribute on climate entities — shows the exact timestamp the AC unit last pushed a temperature reading to the Ayla cloud
+
+---
+
 ## [1.0.0] — 2026-05-25
 
 ### Added
