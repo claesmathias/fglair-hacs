@@ -1,6 +1,7 @@
 """Ayla Networks cloud API client for FGLair / Hisense AC units."""
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 from typing import Any
@@ -12,6 +13,8 @@ from .const import AYLA_USER_SERVERS, AYLA_DEVICES_SERVERS, APP_CONFIGS
 _LOGGER = logging.getLogger(__name__)
 
 _USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 9.0; SM-G850F Build/LRX22G)"
+_TIMEOUT = aiohttp.ClientTimeout(total=15)
+_MAX_RETRIES = 3
 
 
 def _build_credentials(app_key: str) -> tuple[str, str]:
@@ -51,6 +54,31 @@ class FglAirApi:
         self._app_id, self._app_secret = _build_credentials(app_key)
 
     # ------------------------------------------------------------------
+    # Internal: HTTP with timeout + transient-error retry
+    # ------------------------------------------------------------------
+
+    async def _request(self, method: str, url: str, **kwargs: Any) -> Any:
+        """Make an HTTP request with a timeout and up to 3 retries on transient errors."""
+        kwargs.setdefault("ssl", False)
+        kwargs.setdefault("timeout", _TIMEOUT)
+        last_exc: Exception | None = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                async with self._session.request(method, url, **kwargs) as resp:
+                    resp.raise_for_status()
+                    return await resp.json(content_type=None)
+            except (aiohttp.ClientConnectionError, asyncio.TimeoutError) as exc:
+                last_exc = exc
+                if attempt < _MAX_RETRIES - 1:
+                    delay = 2 ** attempt  # 1 s, 2 s on successive retries
+                    _LOGGER.debug(
+                        "Transient error (attempt %d/%d), retrying in %ds: %s",
+                        attempt + 1, _MAX_RETRIES, delay, exc,
+                    )
+                    await asyncio.sleep(delay)
+        raise last_exc  # type: ignore[misc]
+
+    # ------------------------------------------------------------------
     # Authentication
     # ------------------------------------------------------------------
 
@@ -75,16 +103,14 @@ class FglAirApi:
             "Host": self._user_server,
             "Accept-Encoding": "gzip",
         }
-        async with self._session.post(
+        data = await self._request(
+            "POST",
             f"https://{self._user_server}/users/sign_in.json",
             json=payload,
             headers=headers,
-            ssl=False,
-        ) as resp:
-            resp.raise_for_status()
-            data = await resp.json(content_type=None)
-            self._access_token = data["access_token"]
-            _LOGGER.debug("FGLair authentication successful")
+        )
+        self._access_token = data["access_token"]
+        _LOGGER.debug("FGLair authentication successful")
 
     def _headers(self) -> dict:
         return {
@@ -102,28 +128,31 @@ class FglAirApi:
 
     async def get_devices(self) -> list[dict]:
         """Return a list of device dicts from the Ayla devices API."""
-        async with self._session.get(
+        return await self._request(
+            "GET",
             f"https://{self._devices_server}/apiv1/devices.json",
             headers=self._headers(),
-            ssl=False,
-        ) as resp:
-            resp.raise_for_status()
-            return await resp.json(content_type=None)
+        )
 
     # ------------------------------------------------------------------
     # Property access
     # ------------------------------------------------------------------
 
     async def get_device_properties(self, dsn: str) -> dict[str, Any]:
-        """Return {property_name: value} for a device."""
-        async with self._session.get(
+        """Return {property_name: value, __ts_property_name: updated_at} for a device."""
+        raw = await self._request(
+            "GET",
             f"https://{self._devices_server}/apiv1/dsns/{dsn}/properties.json",
             headers=self._headers(),
-            ssl=False,
-        ) as resp:
-            resp.raise_for_status()
-            raw = await resp.json(content_type=None)
-            return {item["property"]["name"]: item["property"]["value"] for item in raw}
+        )
+        result: dict[str, Any] = {}
+        for item in raw:
+            prop = item["property"]
+            name = prop["name"]
+            result[name] = prop["value"]
+            if ts := prop.get("updated_at"):
+                result[f"__ts_{name}"] = ts
+        return result
 
     async def set_device_property(self, dsn: str, name: str, value: Any) -> None:
         """Write a single property datapoint."""
@@ -131,14 +160,13 @@ class FglAirApi:
             f"https://{self._devices_server}"
             f"/apiv1/dsns/{dsn}/properties/{name}/datapoints.json"
         )
-        async with self._session.post(
+        await self._request(
+            "POST",
             url,
             json={"datapoint": {"value": value}},
             headers=self._headers(),
-            ssl=False,
-        ) as resp:
-            resp.raise_for_status()
-            _LOGGER.debug("Set %s.%s = %r", dsn, name, value)
+        )
+        _LOGGER.debug("Set %s.%s = %r", dsn, name, value)
 
     # ------------------------------------------------------------------
     # Token-aware wrapper: re-auth on 401 then retry once

@@ -313,6 +313,19 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
             return self._ac_swing_mode()
         return None
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose when the indoor temperature sensor was last updated by the AC unit."""
+        ts_key = (
+            "__ts_display_temperature"
+            if self._dtype in ("fgl", "fglb")
+            else "__ts_f_temp_in"
+        )
+        ts = self._get(ts_key)
+        if ts is None:
+            return {}
+        return {"temperature_last_updated": ts}
+
     # ------------------------------------------------------------------
     # Commands
     # ------------------------------------------------------------------
