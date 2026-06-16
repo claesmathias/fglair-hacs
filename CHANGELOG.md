@@ -5,6 +5,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.1] — 2026-06-16
+
+### Fixed
+- Offline error message now shows the device DSN instead of the entity name (avoids `AttributeError` in edge cases where the entity name is not yet resolved)
+
+### Added
+- Full unit test suite (68 tests) covering mode/fan mappings, temperature conversion, API retry logic, coordinator offline detection, and climate entity command guards
+
+---
+
 ## [1.4.0] — 2026-06-16
 
 ### Fixed
