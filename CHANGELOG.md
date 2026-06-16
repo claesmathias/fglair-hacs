@@ -5,6 +5,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.0] — 2026-06-16
+
+### Fixed
+- Entity is now marked **Unavailable** in HA when the AC's WiFi module is offline — prevents stale state being shown as if commands were applied
+- All commands (set mode, temperature, fan, swing, turn on/off) now raise a visible error notification when the device is offline instead of silently writing to the Ayla cloud cache
+- Device connection status is refreshed on every poll cycle via the Ayla device list endpoint
+
+---
+
 ## [1.3.0] — 2026-05-30
 
 ### Fixed
