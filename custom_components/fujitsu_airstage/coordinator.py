@@ -30,7 +30,7 @@ class FglAirCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
         )
         self.api = api
-        # Keyed by DSN for fast lookup
+        # Keyed by DSN for fast lookup; refreshed on every poll
         self.devices: dict[str, dict] = {
             d["device"]["dsn"]: d["device"] for d in devices
         }
@@ -39,15 +39,32 @@ class FglAirCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         result: dict[str, dict[str, Any]] = {}
         errors: list[str] = []
 
+        # Refresh connection_status for all devices
+        try:
+            fresh = await self.api.get_devices()
+            for d in fresh:
+                dev = d["device"]
+                dsn = dev["dsn"]
+                if dsn in self.devices:
+                    self.devices[dsn] = dev
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug("Could not refresh device list: %s", exc)
+
         for dsn in self.devices:
+            connection_status = self.devices[dsn].get("connection_status", "Online")
+            if connection_status != "Online":
+                _LOGGER.debug("Device %s is offline (status: %s)", dsn, connection_status)
+                result[dsn] = {"__online": False}
+                continue
+
             try:
                 props = await self.api.get_properties_with_retry(dsn)
+                props["__online"] = True
                 result[dsn] = props
 
                 # FGL devices: trigger a fresh sensor read from the AC unit by
                 # writing get_prop=1. The AC responds by pushing a new
                 # display_temperature to the cloud; the next poll picks it up.
-                # (Mirrors the refresh button in the official FGLair app.)
                 if "get_prop" in props:
                     try:
                         await self.api.set_device_property(dsn, "get_prop", 1)

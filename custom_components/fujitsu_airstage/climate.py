@@ -13,6 +13,7 @@ from homeassistant.components.climate import (
 )
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -314,6 +315,10 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
         return None
 
     @property
+    def available(self) -> bool:
+        return self._props.get("__online", True)
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Expose when the indoor temperature sensor was last updated by the AC unit."""
         ts_key = (
@@ -330,7 +335,14 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
     # Commands
     # ------------------------------------------------------------------
 
+    def _assert_online(self) -> None:
+        if not self.available:
+            raise HomeAssistantError(
+                f"{self.name} is offline — command not sent to the AC unit"
+            )
+
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        self._assert_online()
         if self._dtype in ("fgl", "fglb"):
             value = HA_MODE_TO_FGL[hvac_mode]
             await self._api.set_property_with_retry(self._dsn, "operation_mode", value)
@@ -344,6 +356,7 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
         await self.coordinator.async_request_refresh()
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
+        self._assert_online()
         temp = kwargs.get(ATTR_TEMPERATURE)
         if temp is None:
             return
@@ -359,6 +372,7 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
         await self.coordinator.async_request_refresh()
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
+        self._assert_online()
         if self._dtype in ("fgl", "fglb"):
             value = HA_FAN_TO_FGL[fan_mode]
             await self._api.set_property_with_retry(self._dsn, "fan_speed", value)
@@ -368,6 +382,7 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
         await self.coordinator.async_request_refresh()
 
     async def async_set_swing_mode(self, swing_mode: str) -> None:
+        self._assert_online()
         value = 1 if swing_mode == "on" else 0
         if self._dtype == "fgl":
             await self._api.set_property_with_retry(self._dsn, "af_vertical_swing", value)
@@ -376,6 +391,7 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
         await self.coordinator.async_request_refresh()
 
     async def async_turn_on(self) -> None:
+        self._assert_online()
         if self._dtype in ("fgl", "fglb"):
             # App sends 1 ("ON" wake command); device transitions to last-used mode on its own
             await self._api.set_property_with_retry(self._dsn, "operation_mode", 1)
@@ -384,6 +400,7 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self) -> None:
+        self._assert_online()
         if self._dtype in ("fgl", "fglb"):
             await self._api.set_property_with_retry(self._dsn, "operation_mode", 0)
         else:
