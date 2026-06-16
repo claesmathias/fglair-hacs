@@ -338,7 +338,7 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
     def _assert_online(self) -> None:
         if not self.available:
             raise HomeAssistantError(
-                f"{self.name} is offline — command not sent to the AC unit"
+                f"{self._dsn} is offline — command not sent to the AC unit"
             )
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
