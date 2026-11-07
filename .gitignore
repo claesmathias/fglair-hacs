@@ -1,0 +1,10 @@
+# Reference APKs used for protocol analysis
+apk/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local Claude Code settings
+.claude/settings.local.json

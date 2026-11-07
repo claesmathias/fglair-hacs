@@ -31,6 +31,12 @@ APP_CONFIGS = {
         "region": "us",
         "celsius": False,
     },
+    "fglair-cn": {
+        "prefix": "FGLair-cn",
+        "secret": b"s\xd61\xc0\x82\xa0\xac|Vw\xf8\x83o\x01\xee\xd6J\xfb!\xdf",
+        "region": "cn",
+        "celsius": True,
+    },
     "hisense-eu": {
         "prefix": "Hisense",
         "secret": b"\xc0\xedK,\xff+X\xfa\xf6p\x87\xaa\xbcV\x88\xfbI\xb4\xcf\xad",
@@ -48,21 +54,62 @@ APP_CONFIGS = {
 APP_LABELS = {
     "fglair-eu": "Fujitsu FGLair (EU)",
     "fglair-us": "Fujitsu FGLair (US)",
+    "fglair-cn": "Fujitsu FGLair (China)",
     "hisense-eu": "Hisense (EU)",
     "hisense-us": "Hisense (US)",
 }
 
-# Device type detection patterns
+# Device type detection patterns (FGLair app template_types.js):
+#   template A: AP-WA1E..WA6E, AP-WC1E..WC4E, AP-WD1E
+#   template F: AP-WF1E..WF4E
+#   template B: AP-WB1E..WB4E  ("fglb" — different swing properties, 1 °C steps, no room temp)
 FGL_MODEL_RE = r"AP-W[ACDF]\dE"
 FGLB_MODEL_RE = r"AP-WB\dE"
 
-# FGL / FGLb temperature: API stores tenths of degrees (210 = 21.0 °C)
+# FGL / FGLb temperature: API stores tenths of degrees Celsius (210 = 21.0 °C),
+# regardless of the app's display unit.
 FGL_TEMP_SCALE = 10.0
+
+# Setpoint step (adjust_temperature units): template B = 10 (1 °C), A/F = 5 (0.5 °C)
+FGL_TEMP_STEP = 0.5
+FGLB_TEMP_STEP = 1.0
+
+# Setpoint range per mode (operation_modes.js): heat 16–30 °C, everything else 18–30 °C
+FGL_MIN_TEMP_HEAT = 16.0
+FGL_MIN_TEMP = 18.0
+FGL_MAX_TEMP = 30.0
+
+# Minimum Heat (min_heat = 1): unit holds a fixed 10 °C, setpoint not adjustable.
+# Leaving it for normal heat: the app writes adjust_temperature = 240 (24 °C).
+FGL_MIN_HEAT_TEMP = 10.0
+FGL_HEAT_BASIC_ADJUST = 240
+
+# display_temperature lookup table range (temperatures.js): 4000 (-10 °C) .. 9500 (45 °C)
+FGL_DISPLAY_MIN = 4000
+FGL_DISPLAY_MAX = 9500
+
+# device_capabilities bitmask (device_capabilities.js / air_volumes.js)
+FGL_CAP_MODES = {
+    "cool": 1 << 0,
+    "dry": 1 << 1,
+    "fan_only": 1 << 2,
+    "heat": 1 << 3,
+    "auto": 1 << 4,
+}
+FGL_CAP_FANS = {
+    "auto": 1 << 5,
+    "high": 1 << 6,
+    "medium": 1 << 7,
+    "low": 1 << 8,
+    "quiet": 1 << 9,
+}
+FGL_CAP_VERTICAL_SWING = 1 << 10
+FGL_CAP_MIN_HEAT = 1 << 13
 
 # FglOperationMode int → HA HVACMode string
 FGL_MODE_TO_HA = {
     0: "off",
-    1: "auto",   # "ON" power state — treat as auto
+    1: "off",    # "ON" wake command; the app treats it as off until the unit restores its mode
     2: "auto",
     3: "cool",
     4: "dry",

@@ -10,6 +10,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .api import FglAirApi
 from .const import DOMAIN, DEFAULT_SCAN_INTERVAL
+from .models import device_type
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -65,7 +66,9 @@ class FglAirCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 # FGL devices: trigger a fresh sensor read from the AC unit by
                 # writing get_prop=1. The AC responds by pushing a new
                 # display_temperature to the cloud; the next poll picks it up.
-                if "get_prop" in props:
+                # Template B units have no room temperature in the app, so skip them.
+                model = self.devices[dsn].get("oem_model")
+                if "get_prop" in props and device_type(model) == "fgl":
                     try:
                         await self.api.set_device_property(dsn, "get_prop", 1)
                     except Exception:  # noqa: BLE001

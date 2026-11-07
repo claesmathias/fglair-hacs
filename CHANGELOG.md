@@ -5,6 +5,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+Aligned with the FGLair 3.4.3 Android app.
+
+### Added
+- **Fujitsu FGLair (China)** app/region option (`FGLair-cn` credentials, `ayla.com.cn` servers)
+- B-series (`AP-WB*`) swing control via `af_vertical_move_step1`, which is how the app does it on these units
+- HVAC modes, fan speeds and swing support now follow the unit's `device_capabilities` bitmask
+- `minimum_heat` attribute; while Minimum Heat is active the target shows 10 °C, and choosing Heat leaves it by writing the 24 °C basic setpoint, as the app does
+
+### Changed
+- Target temperature step is 0.5 °C on A/F-template units (AP-WA/WC/WD/WF) and stays 1 °C on B-series
+- Minimum setpoint is 18 °C in auto/cool/dry/fan and 16 °C in heat, matching the app's per-mode ranges
+- `operation_mode = 1` (the transient value right after power-on) now reads as **off** instead of auto, matching the app
+- Model names with a `-dev` suffix are recognised
+
+### Fixed
+- `display_temperature` decoding for sub-zero values (truncate instead of floor), and out-of-table values now read as unknown
+- FGLair units on the US app were labelled °F although the cloud reports °C; they now report °C and HA converts
+- B-series units no longer show a room temperature or get a `get_prop` refresh write every poll, since the app shows neither for them
+
+---
+
 ## [1.4.1] — 2026-06-16
 
 ### Fixed

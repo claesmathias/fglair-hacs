@@ -13,7 +13,7 @@ A HACS custom integration for **Fujitsu FGLair** and **Hisense** air conditioner
 | Model pattern | Series | Notes |
 |---|---|---|
 | `AP-W[ACDF]nE` (e.g. AP-WD1E, AP-WF2E) | Fujitsu FGLair | Full support incl. swing |
-| `AP-WBnE` | Fujitsu FGLair B-series | Full support |
+| `AP-WBnE` | Fujitsu FGLair B-series | Full support incl. swing (no room temperature, as in the app) |
 | AEH-W4B1 / AEH-W4E1 based units | Hisense AC | Full support incl. swing |
 
 Any unit that can be controlled via the official **FGLair** or **Hisense Home** mobile app should work.
@@ -54,6 +54,7 @@ Any unit that can be controlled via the official **FGLair** or **Hisense Home** 
 |---|---|---|
 | **Fujitsu FGLair (EU)** | Europe | You use the FGLair app in Europe |
 | **Fujitsu FGLair (US)** | United States | You use the FGLair app in the US |
+| **Fujitsu FGLair (China)** | China | You use the FGLair app with country set to China |
 | **Hisense (EU)** | Europe | You use the Hisense Home app in Europe |
 | **Hisense (US)** | United States | You use the Hisense Home app in the US |
 
@@ -67,9 +68,10 @@ Each AC unit is exposed as a **Climate** entity with the following controls:
 |---|---|---|
 | HVAC modes | off / auto / cool / heat / dry / fan only | off / auto / cool / heat / dry / fan only |
 | Fan modes | auto / quiet / low / medium / high | auto / lower / low / medium / high / higher |
-| Swing (vertical) | ✅ on / off | ✅ on / off |
-| Target temperature | 16–30 °C (1 °C steps) | 16–30 °C (1 °C steps) |
-| Current temperature | ✅ (indoor sensor) | ✅ (indoor sensor) |
+| Swing (vertical) | ✅ on / off (if the unit supports it) | ✅ on / off |
+| Target temperature | 16–30 °C in heat, 18–30 °C otherwise; 0.5 °C steps (1 °C on B-series) | 16–30 °C (1 °C steps) |
+| Current temperature | ✅ (indoor sensor; not on B-series) | ✅ (indoor sensor) |
+| Minimum Heat (10 °C) | shown as heat at 10 °C, `minimum_heat` attribute | — |
 | Polling interval | 30 seconds | 30 seconds |
 
 ---

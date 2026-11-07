@@ -35,6 +35,21 @@ class TestBuildCredentials:
         app_id, _ = _build_credentials("hisense-us")
         assert app_id == "APP1-id"
 
+    def test_fglair_cn_app_id(self):
+        app_id, _ = _build_credentials("fglair-cn")
+        assert app_id == "FGLair-cn-id"
+
+    def test_fglair_secrets_match_apk(self):
+        # Literal app secrets embedded in the FGLair 3.4.3 APK (classes.dex)
+        assert _build_credentials("fglair-eu")[1] == "FGLair-eu-gpFbVBRoiJ8E3QWJ-QRULLL3j3U"
+        assert _build_credentials("fglair-us")[1] == "CJIOSP-Vb8MQL_lFiYQ7DKjN0eCFXznKZE"
+        assert _build_credentials("fglair-cn")[1] == "FGLair-cn-c9YxwIKgrHxWd_iDbwHu1kr7Id8"
+
+    def test_fglair_cn_uses_china_servers(self):
+        api = FglAirApi("u", "p", "fglair-cn", MagicMock())
+        assert api._user_server == "user-field.ayla.com.cn"
+        assert api._devices_server == "ads-field.ayla.com.cn"
+
     def test_different_apps_produce_different_secrets(self):
         _, eu_secret = _build_credentials("fglair-eu")
         _, us_secret = _build_credentials("fglair-us")

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import math
-import re
 from typing import Any
 
 from homeassistant.components.climate import (
@@ -21,9 +20,19 @@ from homeassistant.config_entries import ConfigEntry
 
 from .const import (
     DOMAIN,
-    FGL_MODEL_RE,
-    FGLB_MODEL_RE,
-    FGL_TEMP_SCALE,  # used in _adjust_to_celsius / _celsius_to_adjust
+    FGL_TEMP_SCALE,
+    FGL_TEMP_STEP,
+    FGLB_TEMP_STEP,
+    FGL_MIN_TEMP,
+    FGL_MIN_TEMP_HEAT,
+    FGL_MAX_TEMP,
+    FGL_MIN_HEAT_TEMP,
+    FGL_HEAT_BASIC_ADJUST,
+    FGL_DISPLAY_MIN,
+    FGL_DISPLAY_MAX,
+    FGL_CAP_MODES,
+    FGL_CAP_FANS,
+    FGL_CAP_VERTICAL_SWING,
     FGL_MODE_TO_HA,
     HA_MODE_TO_FGL,
     FGL_FAN_TO_HA,
@@ -36,19 +45,31 @@ from .const import (
     CONF_APP,
 )
 from .coordinator import FglAirCoordinator
+from .models import device_type as _device_type
 
 _LOGGER = logging.getLogger(__name__)
 
-_FGL_RE = re.compile(FGL_MODEL_RE)
-_FGLB_RE = re.compile(FGLB_MODEL_RE)
+# Full FGL capability lists, used until device_capabilities has been read
+_FGL_ALL_HVAC_MODES = [
+    HVACMode.OFF,
+    HVACMode.AUTO,
+    HVACMode.COOL,
+    HVACMode.HEAT,
+    HVACMode.DRY,
+    HVACMode.FAN_ONLY,
+]
+_FGL_ALL_FAN_MODES = ["auto", "quiet", "low", "medium", "high"]
 
+_BASE_FEATURES = (
+    ClimateEntityFeature.TARGET_TEMPERATURE
+    | ClimateEntityFeature.FAN_MODE
+    | ClimateEntityFeature.TURN_ON
+    | ClimateEntityFeature.TURN_OFF
+)
 
-def _device_type(model: str) -> str:
-    if _FGL_RE.fullmatch(model):
-        return "fgl"
-    if _FGLB_RE.fullmatch(model):
-        return "fglb"
-    return "ac"
+# Template B swing lives in af_vertical_move_step1: 3 = swing, 0 = fixed position
+_FGLB_SWING_ON = 3
+_FGLB_SWING_OFF = 0
 
 
 async def async_setup_entry(
@@ -75,7 +96,7 @@ def _adjust_to_celsius(raw: int | None) -> float | None:
     """adjust_temperature: stored as tenths of °C (210 = 21.0 °C)."""
     if raw is None:
         return None
-    return round(raw / FGL_TEMP_SCALE, 1)
+    return round(int(raw) / FGL_TEMP_SCALE, 1)
 
 
 def _celsius_to_adjust(celsius: float) -> int:
@@ -85,13 +106,18 @@ def _celsius_to_adjust(celsius: float) -> int:
 def _display_to_celsius(raw: int | None) -> float | None:
     """display_temperature: lookup-table encoded value from the FGLair app.
 
-    The table maps display integers to 0.5 °C steps via:
-        celsius = floor((display - 5000) / 50) * 0.5
-    (derived from the TEMPERATURES array in the FGLair 3.4.2 APK build.js)
+    The TEMPERATURES table in the FGLair APK (temperatures.js) maps display
+    values 4000..9500 in steps of 25 to 0.5 °C steps from -10 °C to 45 °C:
+        celsius = trunc((display - 5000) / 50) * 0.5
+    (truncation toward zero, so negative temperatures round up, e.g. 4025 → -9.5).
+    Values outside the table are shown as unknown by the app.
     """
     if raw is None:
         return None
-    return math.floor((raw - 5000) / 50) * 0.5
+    raw = int(raw)
+    if not FGL_DISPLAY_MIN <= raw <= FGL_DISPLAY_MAX:
+        return None
+    return math.trunc((raw - 5000) / 50) * 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -120,56 +146,32 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
         self._dtype = _device_type(device_info.get("oem_model", ""))
 
         self._attr_unique_id = dsn
-        self._attr_temperature_unit = (
-            UnitOfTemperature.CELSIUS if celsius else UnitOfTemperature.FAHRENHEIT
-        )
 
-        # Capabilities differ between FGL, FGLB, and AC devices
-        if self._dtype in ("fgl", "fglb"):
-            self._attr_hvac_modes = [
-                HVACMode.OFF,
-                HVACMode.AUTO,
-                HVACMode.COOL,
-                HVACMode.HEAT,
-                HVACMode.DRY,
-                HVACMode.FAN_ONLY,
-            ]
-            self._attr_fan_modes = ["auto", "quiet", "low", "medium", "high"]
-            self._attr_min_temp = 16.0
-            self._attr_max_temp = 30.0
-            self._attr_target_temp_step = 1.0
-            features = (
-                ClimateEntityFeature.TARGET_TEMPERATURE
-                | ClimateEntityFeature.FAN_MODE
-                | ClimateEntityFeature.TURN_ON
-                | ClimateEntityFeature.TURN_OFF
+        if self._is_fgl:
+            # FGL units always report °C×10, whatever unit the app displays;
+            # HA converts to the user's preferred unit.
+            self._attr_temperature_unit = UnitOfTemperature.CELSIUS
+            self._attr_max_temp = FGL_MAX_TEMP
+            self._attr_target_temp_step = (
+                FGLB_TEMP_STEP if self._dtype == "fglb" else FGL_TEMP_STEP
             )
-            if self._dtype == "fgl":
-                self._attr_swing_modes = ["on", "off"]
-                features |= ClimateEntityFeature.SWING_MODE
-            self._attr_supported_features = features
+            self._attr_swing_modes = ["on", "off"]
         else:
             # Generic AC device (Hisense non-FGL)
-            self._attr_hvac_modes = [
-                HVACMode.OFF,
-                HVACMode.AUTO,
-                HVACMode.COOL,
-                HVACMode.HEAT,
-                HVACMode.DRY,
-                HVACMode.FAN_ONLY,
-            ]
+            self._attr_temperature_unit = (
+                UnitOfTemperature.CELSIUS if celsius else UnitOfTemperature.FAHRENHEIT
+            )
+            self._attr_hvac_modes = list(_FGL_ALL_HVAC_MODES)
             self._attr_fan_modes = ["auto", "lower", "low", "medium", "high", "higher"]
             self._attr_min_temp = 16.0
             self._attr_max_temp = 30.0
             self._attr_target_temp_step = 1.0
-            self._attr_supported_features = (
-                ClimateEntityFeature.TARGET_TEMPERATURE
-                | ClimateEntityFeature.FAN_MODE
-                | ClimateEntityFeature.SWING_MODE
-                | ClimateEntityFeature.TURN_ON
-                | ClimateEntityFeature.TURN_OFF
-            )
+            self._attr_supported_features = _BASE_FEATURES | ClimateEntityFeature.SWING_MODE
             self._attr_swing_modes = ["on", "off"]
+
+    @property
+    def _is_fgl(self) -> bool:
+        return self._dtype in ("fgl", "fglb")
 
     # ------------------------------------------------------------------
     # Device registry
@@ -204,6 +206,22 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
     def _get(self, key: str):
         return self._props.get(key)
 
+    def _fgl_capabilities(self) -> int | None:
+        """device_capabilities bitmask, or None if not (yet) known."""
+        raw = self._get("device_capabilities")
+        try:
+            caps = int(raw)
+        except (TypeError, ValueError):
+            return None
+        return caps or None
+
+    def _fgl_min_heat(self) -> bool:
+        raw = self._get("min_heat")
+        try:
+            return int(raw) == 1
+        except (TypeError, ValueError):
+            return False
+
     # ------------------------------------------------------------------
     # FGL state
     # ------------------------------------------------------------------
@@ -216,9 +234,14 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
         return HVACMode(mode_str)
 
     def _fgl_current_temp(self) -> float | None:
+        # The FGLair app hides room temperature for template B units
+        if self._dtype == "fglb":
+            return None
         return _display_to_celsius(self._get("display_temperature"))
 
     def _fgl_target_temp(self) -> float | None:
+        if self._fgl_min_heat():
+            return FGL_MIN_HEAT_TEMP
         return _adjust_to_celsius(self._get("adjust_temperature"))
 
     def _fgl_fan_mode(self) -> str | None:
@@ -228,10 +251,15 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
         return FGL_FAN_TO_HA.get(int(raw))
 
     def _fgl_swing_mode(self) -> str | None:
+        if self._dtype == "fglb":
+            raw = self._get("af_vertical_move_step1")
+            if raw is None:
+                return None
+            return "on" if int(raw) == _FGLB_SWING_ON else "off"
         raw = self._get("af_vertical_swing")
         if raw is None:
             return None
-        return "on" if int(raw) else "off"
+        return "on" if int(raw) == 1 else "off"
 
     # ------------------------------------------------------------------
     # AC state
@@ -279,40 +307,82 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
         return "on" if int(raw) else "off"
 
     # ------------------------------------------------------------------
-    # HA properties
+    # HA capability properties (FGL: derived from device_capabilities)
+    # ------------------------------------------------------------------
+
+    @property
+    def hvac_modes(self) -> list[HVACMode]:
+        if not self._is_fgl:
+            return self._attr_hvac_modes
+        caps = self._fgl_capabilities()
+        if caps is None:
+            return list(_FGL_ALL_HVAC_MODES)
+        return [HVACMode.OFF] + [
+            mode for mode in _FGL_ALL_HVAC_MODES[1:]
+            if caps & FGL_CAP_MODES[mode.value]
+        ]
+
+    @property
+    def fan_modes(self) -> list[str] | None:
+        if not self._is_fgl:
+            return self._attr_fan_modes
+        caps = self._fgl_capabilities()
+        if caps is None:
+            return list(_FGL_ALL_FAN_MODES)
+        return [fan for fan in _FGL_ALL_FAN_MODES if caps & FGL_CAP_FANS[fan]]
+
+    @property
+    def supported_features(self) -> ClimateEntityFeature:
+        if not self._is_fgl:
+            return self._attr_supported_features
+        features = _BASE_FEATURES
+        caps = self._fgl_capabilities()
+        if caps is None or caps & FGL_CAP_VERTICAL_SWING:
+            features |= ClimateEntityFeature.SWING_MODE
+        return features
+
+    @property
+    def min_temp(self) -> float:
+        if not self._is_fgl:
+            return self._attr_min_temp
+        # Heat (and off, so a heat setpoint can be pre-set) allow 16 °C; other modes 18 °C
+        if self.hvac_mode in (HVACMode.AUTO, HVACMode.COOL, HVACMode.DRY, HVACMode.FAN_ONLY):
+            return FGL_MIN_TEMP
+        return FGL_MIN_TEMP_HEAT
+
+    # ------------------------------------------------------------------
+    # HA state properties
     # ------------------------------------------------------------------
 
     @property
     def hvac_mode(self) -> HVACMode:
-        if self._dtype in ("fgl", "fglb"):
+        if self._is_fgl:
             return self._fgl_hvac_mode()
         return self._ac_hvac_mode()
 
     @property
     def current_temperature(self) -> float | None:
-        if self._dtype in ("fgl", "fglb"):
+        if self._is_fgl:
             return self._fgl_current_temp()
         return self._ac_current_temp()
 
     @property
     def target_temperature(self) -> float | None:
-        if self._dtype in ("fgl", "fglb"):
+        if self._is_fgl:
             return self._fgl_target_temp()
         return self._ac_target_temp()
 
     @property
     def fan_mode(self) -> str | None:
-        if self._dtype in ("fgl", "fglb"):
+        if self._is_fgl:
             return self._fgl_fan_mode()
         return self._ac_fan_mode()
 
     @property
     def swing_mode(self) -> str | None:
-        if self._dtype == "fgl":
+        if self._is_fgl:
             return self._fgl_swing_mode()
-        if self._dtype == "ac":
-            return self._ac_swing_mode()
-        return None
+        return self._ac_swing_mode()
 
     @property
     def available(self) -> bool:
@@ -320,16 +390,20 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Expose when the indoor temperature sensor was last updated by the AC unit."""
-        ts_key = (
-            "__ts_display_temperature"
-            if self._dtype in ("fgl", "fglb")
-            else "__ts_f_temp_in"
-        )
-        ts = self._get(ts_key)
-        if ts is None:
-            return {}
-        return {"temperature_last_updated": ts}
+        """Expose indoor sensor freshness and Minimum Heat state."""
+        attrs: dict[str, Any] = {}
+        if self._is_fgl:
+            if self._dtype == "fgl":
+                ts = self._get("__ts_display_temperature")
+                if ts is not None:
+                    attrs["temperature_last_updated"] = ts
+            if self._get("min_heat") is not None:
+                attrs["minimum_heat"] = self._fgl_min_heat()
+        else:
+            ts = self._get("__ts_f_temp_in")
+            if ts is not None:
+                attrs["temperature_last_updated"] = ts
+        return attrs
 
     # ------------------------------------------------------------------
     # Commands
@@ -343,9 +417,16 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         self._assert_online()
-        if self._dtype in ("fgl", "fglb"):
-            value = HA_MODE_TO_FGL[hvac_mode]
-            await self._api.set_property_with_retry(self._dsn, "operation_mode", value)
+        if self._is_fgl:
+            if hvac_mode == HVACMode.HEAT and self._fgl_min_heat():
+                # Minimum Heat → Heat: the app leaves Minimum Heat by writing the
+                # basic heat setpoint (24 °C); operation_mode is already "heat".
+                await self._api.set_property_with_retry(
+                    self._dsn, "adjust_temperature", FGL_HEAT_BASIC_ADJUST
+                )
+            else:
+                value = HA_MODE_TO_FGL[hvac_mode]
+                await self._api.set_property_with_retry(self._dsn, "operation_mode", value)
         else:
             if hvac_mode == HVACMode.OFF:
                 await self._api.set_property_with_retry(self._dsn, "t_power", 0)
@@ -360,7 +441,10 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
         temp = kwargs.get(ATTR_TEMPERATURE)
         if temp is None:
             return
-        if self._dtype in ("fgl", "fglb"):
+        if self._is_fgl:
+            # Snap to the unit's step (0.5 °C, or 1 °C for template B)
+            step = self._attr_target_temp_step
+            temp = round(temp / step) * step
             await self._api.set_property_with_retry(
                 self._dsn, "adjust_temperature", _celsius_to_adjust(temp)
             )
@@ -373,7 +457,7 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         self._assert_online()
-        if self._dtype in ("fgl", "fglb"):
+        if self._is_fgl:
             value = HA_FAN_TO_FGL[fan_mode]
             await self._api.set_property_with_retry(self._dsn, "fan_speed", value)
         else:
@@ -383,16 +467,24 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
 
     async def async_set_swing_mode(self, swing_mode: str) -> None:
         self._assert_online()
-        value = 1 if swing_mode == "on" else 0
-        if self._dtype == "fgl":
-            await self._api.set_property_with_retry(self._dsn, "af_vertical_swing", value)
+        on = swing_mode == "on"
+        if self._dtype == "fglb":
+            await self._api.set_property_with_retry(
+                self._dsn,
+                "af_vertical_move_step1",
+                _FGLB_SWING_ON if on else _FGLB_SWING_OFF,
+            )
+        elif self._dtype == "fgl":
+            await self._api.set_property_with_retry(
+                self._dsn, "af_vertical_swing", 1 if on else 0
+            )
         else:
-            await self._api.set_property_with_retry(self._dsn, "t_fan_power", value)
+            await self._api.set_property_with_retry(self._dsn, "t_fan_power", 1 if on else 0)
         await self.coordinator.async_request_refresh()
 
     async def async_turn_on(self) -> None:
         self._assert_online()
-        if self._dtype in ("fgl", "fglb"):
+        if self._is_fgl:
             # App sends 1 ("ON" wake command); device transitions to last-used mode on its own
             await self._api.set_property_with_retry(self._dsn, "operation_mode", 1)
         else:
@@ -401,7 +493,7 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
 
     async def async_turn_off(self) -> None:
         self._assert_online()
-        if self._dtype in ("fgl", "fglb"):
+        if self._is_fgl:
             await self._api.set_property_with_retry(self._dsn, "operation_mode", 0)
         else:
             await self._api.set_property_with_retry(self._dsn, "t_power", 0)
