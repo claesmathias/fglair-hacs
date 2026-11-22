@@ -5,6 +5,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Repairs messages** (Settings → System → Repairs):
+  - *FGLair cloud connection lost*, raised after 3 failed polls in a row (~90 s); entities go unavailable instead of showing stale state
+  - *<unit> is offline*, raised when the cloud reports a unit's WiFi adapter offline
+  - Both clear automatically on recovery
+- **Re-authentication prompt** when the cloud rejects the stored password, instead of failing silently
+
+### Fixed
+- Target temperature step was never applied: HA reads `target_temperature_step`, the integration set `target_temp_step`. The 0.5 °C (A/F) and 1 °C (B-series) steps now take effect
+- The first command after the access token expired showed an error although it was applied
+- The device list (used for offline detection) now re-authenticates when the token expires
+- A lost cloud connection no longer keeps entities "available" with stale data
+
+---
+
 ## [1.5.0] — 2026-11-07
 
 Aligned with the FGLair 3.4.3 Android app.

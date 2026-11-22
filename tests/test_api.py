@@ -138,3 +138,46 @@ class TestApiRetry:
         assert result["display_temperature"] == 7100
         assert result["__ts_operation_mode"] == "2026-06-16T12:00:00Z"
         assert result["__ts_display_temperature"] == "2026-06-16T11:55:00Z"
+
+
+class TestReauthWrappers:
+    def _make_api(self) -> FglAirApi:
+        return FglAirApi("user@test.com", "pass", "fglair-eu", MagicMock(spec=aiohttp.ClientSession))
+
+    @staticmethod
+    def _http(status):
+        return aiohttp.ClientResponseError(MagicMock(), (), status=status)
+
+    @pytest.mark.asyncio
+    async def test_set_property_succeeds_after_token_refresh(self):
+        # Regression: the 401 used to be re-raised even after a successful retry
+        api = self._make_api()
+        api.authenticate = AsyncMock()
+        api.set_device_property = AsyncMock(side_effect=[self._http(401), None])
+        await api.set_property_with_retry("DSN001", "operation_mode", 3)
+        api.authenticate.assert_awaited_once()
+        assert api.set_device_property.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_get_devices_reauths_on_401(self):
+        api = self._make_api()
+        api.authenticate = AsyncMock()
+        api.get_devices = AsyncMock(side_effect=[self._http(401), [{"device": {}}]])
+        assert await api.get_devices_with_retry() == [{"device": {}}]
+        api.authenticate.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_non_401_is_not_retried(self):
+        api = self._make_api()
+        api.authenticate = AsyncMock()
+        api.get_device_properties = AsyncMock(side_effect=self._http(500))
+        with pytest.raises(aiohttp.ClientResponseError):
+            await api.get_properties_with_retry("DSN001")
+        api.authenticate.assert_not_awaited()
+
+    def test_is_auth_error(self):
+        from custom_components.fujitsu_airstage.api import is_auth_error
+        assert is_auth_error(self._http(401))
+        assert is_auth_error(self._http(403))
+        assert not is_auth_error(self._http(500))
+        assert not is_auth_error(aiohttp.ClientConnectionError())

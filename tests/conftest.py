@@ -20,10 +20,14 @@ class HomeAssistantError(Exception):
 class ConfigEntryNotReady(HomeAssistantError):
     pass
 
+class ConfigEntryAuthFailed(HomeAssistantError):
+    pass
+
 _make_module(
     "homeassistant.exceptions",
     HomeAssistantError=HomeAssistantError,
     ConfigEntryNotReady=ConfigEntryNotReady,
+    ConfigEntryAuthFailed=ConfigEntryAuthFailed,
 )
 
 # --- homeassistant.const ---
@@ -73,6 +77,10 @@ class CoordinatorEntity:
     def __init__(self, coordinator):
         self.coordinator = coordinator
 
+    @property
+    def available(self):
+        return self.coordinator.last_update_success
+
     def __class_getitem__(cls, item):
         return cls
 
@@ -92,7 +100,23 @@ class DeviceInfo(dict):
 
 _make_module("homeassistant.helpers.entity", DeviceInfo=DeviceInfo)
 _make_module("homeassistant.helpers.entity_platform", AddEntitiesCallback=MagicMock)
-_make_module("homeassistant.helpers", update_coordinator=sys.modules["homeassistant.helpers.update_coordinator"])
+# --- homeassistant.helpers.issue_registry (Repairs) ---
+class IssueSeverity(str, Enum):
+    CRITICAL = "critical"
+    ERROR = "error"
+    WARNING = "warning"
+
+_make_module(
+    "homeassistant.helpers.issue_registry",
+    IssueSeverity=IssueSeverity,
+    async_create_issue=MagicMock(),
+    async_delete_issue=MagicMock(),
+)
+_make_module(
+    "homeassistant.helpers",
+    update_coordinator=sys.modules["homeassistant.helpers.update_coordinator"],
+    issue_registry=sys.modules["homeassistant.helpers.issue_registry"],
+)
 _make_module(
     "homeassistant.config_entries",
     ConfigEntry=MagicMock,

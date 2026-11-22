@@ -152,7 +152,7 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
             # HA converts to the user's preferred unit.
             self._attr_temperature_unit = UnitOfTemperature.CELSIUS
             self._attr_max_temp = FGL_MAX_TEMP
-            self._attr_target_temp_step = (
+            self._attr_target_temperature_step = (
                 FGLB_TEMP_STEP if self._dtype == "fglb" else FGL_TEMP_STEP
             )
             self._attr_swing_modes = ["on", "off"]
@@ -165,7 +165,7 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
             self._attr_fan_modes = ["auto", "lower", "low", "medium", "high", "higher"]
             self._attr_min_temp = 16.0
             self._attr_max_temp = 30.0
-            self._attr_target_temp_step = 1.0
+            self._attr_target_temperature_step = 1.0
             self._attr_supported_features = _BASE_FEATURES | ClimateEntityFeature.SWING_MODE
             self._attr_swing_modes = ["on", "off"]
 
@@ -386,7 +386,9 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
 
     @property
     def available(self) -> bool:
-        return self._props.get("__online", True)
+        # Unavailable when the cloud is unreachable (coordinator update failed)
+        # or when the unit's WiFi adapter is offline.
+        return super().available and self._props.get("__online", True)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -443,7 +445,7 @@ class FglAirClimate(CoordinatorEntity[FglAirCoordinator], ClimateEntity):
             return
         if self._is_fgl:
             # Snap to the unit's step (0.5 °C, or 1 °C for template B)
-            step = self._attr_target_temp_step
+            step = self._attr_target_temperature_step
             temp = round(temp / step) * step
             await self._api.set_property_with_retry(
                 self._dsn, "adjust_temperature", _celsius_to_adjust(temp)

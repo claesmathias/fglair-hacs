@@ -10,7 +10,7 @@ from custom_components.fujitsu_airstage.coordinator import FglAirCoordinator
 
 def _make_coordinator(devices: list[dict]) -> tuple[FglAirCoordinator, MagicMock]:
     api = MagicMock()
-    api.get_devices = AsyncMock(return_value=devices)
+    api.get_devices_with_retry = AsyncMock(return_value=devices)
     api.get_properties_with_retry = AsyncMock(return_value={
         "operation_mode": 3,
         "display_temperature": 7100,
@@ -19,7 +19,7 @@ def _make_coordinator(devices: list[dict]) -> tuple[FglAirCoordinator, MagicMock
     })
     api.set_device_property = AsyncMock()
     hass = MagicMock()
-    coord = FglAirCoordinator(hass, api, devices)
+    coord = FglAirCoordinator(hass, api, devices, "ENTRY1")
     return coord, api
 
 
@@ -45,7 +45,7 @@ class TestCoordinatorOfflineDetection:
         devices = [_online_device("DSN001")]
         coord, api = _make_coordinator(devices)
         # Simulate device going offline before the poll
-        api.get_devices = AsyncMock(return_value=[_offline_device("DSN001")])
+        api.get_devices_with_retry = AsyncMock(return_value=[_offline_device("DSN001")])
         result = await coord._async_update_data()
         assert result["DSN001"]["__online"] is False
         api.get_properties_with_retry.assert_not_called()
@@ -61,7 +61,7 @@ class TestCoordinatorOfflineDetection:
     async def test_mixed_devices_online_and_offline(self):
         devices = [_online_device("DSN001"), _online_device("DSN002")]
         coord, api = _make_coordinator(devices)
-        api.get_devices = AsyncMock(return_value=[
+        api.get_devices_with_retry = AsyncMock(return_value=[
             _online_device("DSN001"),
             _offline_device("DSN002"),
         ])
@@ -120,3 +120,159 @@ class TestCoordinatorTemplateB:
         coord, api = _make_coordinator(devices)
         await coord._async_update_data()
         api.set_device_property.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Repairs issues and auth failures
+# ---------------------------------------------------------------------------
+
+import aiohttp
+from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.update_coordinator import UpdateFailed
+
+
+@pytest.fixture(autouse=True)
+def _reset_issue_registry():
+    ir.async_create_issue.reset_mock()
+    ir.async_delete_issue.reset_mock()
+
+
+def _created_issue_ids():
+    return [c.args[2] for c in ir.async_create_issue.call_args_list]
+
+
+def _deleted_issue_ids():
+    return [c.args[2] for c in ir.async_delete_issue.call_args_list]
+
+
+def _cloud_down(api):
+    err = aiohttp.ClientConnectionError("Cannot connect to host")
+    api.get_devices_with_retry = AsyncMock(side_effect=err)
+    api.get_properties_with_retry = AsyncMock(side_effect=err)
+
+
+class TestDeviceOfflineIssue:
+    @pytest.mark.asyncio
+    async def test_issue_created_when_device_goes_offline(self):
+        coord, api = _make_coordinator([_online_device("DSN001")])
+        api.get_devices_with_retry = AsyncMock(return_value=[_offline_device("DSN001")])
+        await coord._async_update_data()
+        assert _created_issue_ids() == ["device_offline_DSN001"]
+        kwargs = ir.async_create_issue.call_args.kwargs
+        assert kwargs["translation_key"] == "device_offline"
+        assert kwargs["translation_placeholders"]["dsn"] == "DSN001"
+
+    @pytest.mark.asyncio
+    async def test_issue_created_only_once(self):
+        coord, api = _make_coordinator([_offline_device("DSN001")])
+        api.get_devices_with_retry = AsyncMock(return_value=[_offline_device("DSN001")])
+        await coord._async_update_data()
+        await coord._async_update_data()
+        assert ir.async_create_issue.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_issue_removed_when_device_back_online(self):
+        coord, api = _make_coordinator([_offline_device("DSN001")])
+        api.get_devices_with_retry = AsyncMock(return_value=[_offline_device("DSN001")])
+        await coord._async_update_data()
+        api.get_devices_with_retry = AsyncMock(return_value=[_online_device("DSN001")])
+        await coord._async_update_data()
+        assert _deleted_issue_ids() == ["device_offline_DSN001"]
+
+    @pytest.mark.asyncio
+    async def test_no_issue_for_online_device(self):
+        coord, api = _make_coordinator([_online_device("DSN001")])
+        await coord._async_update_data()
+        ir.async_create_issue.assert_not_called()
+        ir.async_delete_issue.assert_not_called()
+
+
+class TestCloudUnreachable:
+    @pytest.mark.asyncio
+    async def test_first_refresh_failure_raises(self):
+        coord, api = _make_coordinator([_online_device("DSN001")])
+        _cloud_down(api)
+        with pytest.raises(UpdateFailed):
+            await coord._async_update_data()
+
+    @pytest.mark.asyncio
+    async def test_short_blip_keeps_last_state_without_issue(self):
+        coord, api = _make_coordinator([_online_device("DSN001")])
+        coord.data = {"DSN001": {"operation_mode": 2, "__online": True}}
+        _cloud_down(api)
+        result = await coord._async_update_data()
+        assert result["DSN001"]["operation_mode"] == 2
+        ir.async_create_issue.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sustained_outage_raises_and_creates_issue(self):
+        coord, api = _make_coordinator([_online_device("DSN001")])
+        coord.data = {"DSN001": {"operation_mode": 2, "__online": True}}
+        _cloud_down(api)
+        await coord._async_update_data()
+        await coord._async_update_data()
+        with pytest.raises(UpdateFailed):
+            await coord._async_update_data()
+        assert _created_issue_ids() == ["cloud_unreachable_ENTRY1"]
+        kwargs = ir.async_create_issue.call_args.kwargs
+        assert kwargs["translation_key"] == "cloud_unreachable"
+        assert kwargs["severity"] == ir.IssueSeverity.ERROR
+        # A device's cached status must not raise an offline issue while the cloud is down
+        assert "device_offline_DSN001" not in _created_issue_ids()
+
+    @pytest.mark.asyncio
+    async def test_issue_removed_when_cloud_returns(self):
+        coord, api = _make_coordinator([_online_device("DSN001")])
+        coord.data = {"DSN001": {"operation_mode": 2, "__online": True}}
+        good_devices = api.get_devices_with_retry
+        good_props = api.get_properties_with_retry
+        _cloud_down(api)
+        for _ in range(3):
+            try:
+                await coord._async_update_data()
+            except UpdateFailed:
+                pass
+        api.get_devices_with_retry = good_devices
+        api.get_properties_with_retry = good_props
+        result = await coord._async_update_data()
+        assert result["DSN001"]["__online"] is True
+        assert "cloud_unreachable_ENTRY1" in _deleted_issue_ids()
+
+    @pytest.mark.asyncio
+    async def test_clear_issues_removes_everything(self):
+        coord, api = _make_coordinator([_offline_device("DSN001")])
+        api.get_devices_with_retry = AsyncMock(return_value=[_offline_device("DSN001")])
+        await coord._async_update_data()
+        coord.clear_issues()
+        assert set(_deleted_issue_ids()) == {"cloud_unreachable_ENTRY1", "device_offline_DSN001"}
+
+
+class TestAuthFailure:
+    @pytest.mark.asyncio
+    async def test_rejected_credentials_on_device_list_start_reauth(self):
+        coord, api = _make_coordinator([_online_device("DSN001")])
+        api.get_devices_with_retry = AsyncMock(
+            side_effect=aiohttp.ClientResponseError(MagicMock(), (), status=401)
+        )
+        with pytest.raises(ConfigEntryAuthFailed):
+            await coord._async_update_data()
+
+    @pytest.mark.asyncio
+    async def test_rejected_credentials_on_properties_start_reauth(self):
+        coord, api = _make_coordinator([_online_device("DSN001")])
+        api.get_properties_with_retry = AsyncMock(
+            side_effect=aiohttp.ClientResponseError(MagicMock(), (), status=403)
+        )
+        with pytest.raises(ConfigEntryAuthFailed):
+            await coord._async_update_data()
+
+    @pytest.mark.asyncio
+    async def test_server_error_is_not_auth_failure(self):
+        coord, api = _make_coordinator([_online_device("DSN001")])
+        coord.data = {"DSN001": {"operation_mode": 2, "__online": True}}
+        api.get_properties_with_retry = AsyncMock(
+            side_effect=aiohttp.ClientResponseError(MagicMock(), (), status=500)
+        )
+        result = await coord._async_update_data()
+        assert result["DSN001"]["operation_mode"] == 2

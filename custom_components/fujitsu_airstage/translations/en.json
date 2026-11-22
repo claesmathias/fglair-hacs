@@ -9,6 +9,13 @@
           "password": "Password",
           "app": "App / Region"
         }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate FGLair",
+        "description": "FGLair rejected the stored password for {username}. Enter the current password you use in the mobile app.",
+        "data": {
+          "password": "Password"
+        }
       }
     },
     "error": {
@@ -18,7 +25,18 @@
       "unknown": "Unexpected error. Check the Home Assistant logs."
     },
     "abort": {
-      "already_configured": "This account is already configured."
+      "already_configured": "This account is already configured.",
+      "reauth_successful": "Re-authentication successful."
+    }
+  },
+  "issues": {
+    "cloud_unreachable": {
+      "title": "FGLair cloud connection lost",
+      "description": "Home Assistant cannot reach the FGLair (Ayla Networks) cloud, so your air conditioners are shown as unavailable and can't be controlled.\n\nLast error: {error}\n\nCheck Home Assistant's internet connection. If it is fine, the FGLair cloud may be down for maintenance. This message disappears automatically once the connection is back."
+    },
+    "device_offline": {
+      "title": "{name} is offline",
+      "description": "The FGLair cloud reports that the WiFi adapter of **{name}** (`{dsn}`) is offline, so it can't be controlled.\n\nCheck that the unit has power and that its WiFi adapter can reach your router. You can confirm in the FGLair app. This message disappears automatically when the unit reconnects."
     }
   }
 }

@@ -89,7 +89,13 @@ Make sure you restarted Home Assistant after copying the files or installing via
 Open an issue with your device's `oem_model` value (visible in the device info page in HA).
 
 ### Cannot connect / timeout
-The integration uses the Ayla Networks cloud API. If the cloud is unreachable (e.g. maintenance), polling will fail until connectivity is restored. Check the HA logs for details.
+The integration uses the Ayla Networks cloud API. If the cloud can't be reached for about 90 seconds (internet outage, Ayla maintenance), the AC entities become unavailable and **Settings → System → Repairs** shows *FGLair cloud connection lost* with the last error. It clears automatically when the connection returns.
+
+### A unit shows as unavailable
+If the AC's WiFi adapter drops off, Repairs shows *<unit> is offline*. Check the unit's power and WiFi in the FGLair app; the message clears when it reconnects.
+
+### Password changed
+If FGLair rejects the stored password, Home Assistant shows a **Re-authenticate** prompt under Settings → Devices & Services. Enter the password you use in the mobile app.
 
 ### Logs
 Enable debug logging by adding this to your `configuration.yaml`:

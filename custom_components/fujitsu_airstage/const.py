@@ -1,6 +1,10 @@
 DOMAIN = "fujitsu_airstage"
 DEFAULT_SCAN_INTERVAL = 30
 
+# Consecutive polls with no answer from the cloud before entities go unavailable
+# and a Repairs issue is raised (3 × 30 s = 90 s)
+CLOUD_FAILURE_THRESHOLD = 3
+
 CONF_APP = "app"
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"

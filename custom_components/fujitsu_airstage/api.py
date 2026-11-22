@@ -169,25 +169,29 @@ class FglAirApi:
         _LOGGER.debug("Set %s.%s = %r", dsn, name, value)
 
     # ------------------------------------------------------------------
-    # Token-aware wrapper: re-auth on 401 then retry once
+    # Token-aware wrappers: re-auth on 401 then retry once
     # ------------------------------------------------------------------
 
-    async def get_properties_with_retry(self, dsn: str) -> dict[str, Any]:
+    async def _with_reauth(self, func, *args: Any) -> Any:
         try:
-            return await self.get_device_properties(dsn)
+            return await func(*args)
         except aiohttp.ClientResponseError as exc:
-            if exc.status == 401:
-                _LOGGER.debug("Token expired, re-authenticating")
-                await self.authenticate()
-                return await self.get_device_properties(dsn)
-            raise
+            if exc.status != 401:
+                raise
+            _LOGGER.debug("Token expired, re-authenticating")
+            await self.authenticate()
+            return await func(*args)
+
+    async def get_devices_with_retry(self) -> list[dict]:
+        return await self._with_reauth(self.get_devices)
+
+    async def get_properties_with_retry(self, dsn: str) -> dict[str, Any]:
+        return await self._with_reauth(self.get_device_properties, dsn)
 
     async def set_property_with_retry(self, dsn: str, name: str, value: Any) -> None:
-        try:
-            await self.set_device_property(dsn, name, value)
-        except aiohttp.ClientResponseError as exc:
-            if exc.status == 401:
-                _LOGGER.debug("Token expired, re-authenticating")
-                await self.authenticate()
-                await self.set_device_property(dsn, name, value)
-            raise
+        await self._with_reauth(self.set_device_property, dsn, name, value)
+
+
+def is_auth_error(exc: BaseException) -> bool:
+    """True when the Ayla user server rejected our credentials."""
+    return isinstance(exc, aiohttp.ClientResponseError) and exc.status in (401, 403)

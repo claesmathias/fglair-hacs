@@ -159,11 +159,11 @@ class TestFglValueOneIsOff:
 
 class TestTemperatureStepAndRange:
     def test_template_a_f_half_degree_step(self):
-        assert _make_entity({}, oem_model="AP-WD1E")._attr_target_temp_step == 0.5
-        assert _make_entity({}, oem_model="AP-WF2E")._attr_target_temp_step == 0.5
+        assert _make_entity({}, oem_model="AP-WD1E")._attr_target_temperature_step == 0.5
+        assert _make_entity({}, oem_model="AP-WF2E")._attr_target_temperature_step == 0.5
 
     def test_template_b_whole_degree_step(self):
-        assert _make_entity({}, oem_model="AP-WB1E")._attr_target_temp_step == 1.0
+        assert _make_entity({}, oem_model="AP-WB1E")._attr_target_temperature_step == 1.0
 
     def test_min_temp_heat_16(self):
         assert _make_entity({"operation_mode": 6}).min_temp == 16.0
@@ -266,3 +266,15 @@ class TestDeviceCapabilities:
         without = _make_entity({"device_capabilities": self.FULL & ~(1 << 10)})
         assert with_swing.supported_features & ClimateEntityFeature.SWING_MODE
         assert not without.supported_features & ClimateEntityFeature.SWING_MODE
+
+
+class TestAvailabilityWithCloud:
+    def test_unavailable_when_coordinator_update_failed(self):
+        e = _make_entity({"__online": True})
+        e.coordinator.last_update_success = False
+        assert e.available is False
+
+    def test_unavailable_when_device_offline(self):
+        e = _make_entity({"__online": False})
+        e.coordinator.last_update_success = True
+        assert e.available is False
